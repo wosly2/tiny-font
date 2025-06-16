@@ -9,7 +9,7 @@ import (
 )
 
 type Font struct {
-	Atlas      *sdl.Texture
+	Atlas      *sdl.Surface
 	GridWidth  int
 	CharSize   [2]int // Width and height of each character cell (excluding 1px padding)
 	CharSet    string // String containing all supported characters in order matching atlas
@@ -35,14 +35,31 @@ func (font *Font) loadGlyph(char rune) sdl.Rect {
 }
 
 // renderString draws text to the screen with specified position and color
-func (font *Font) renderString(renderer *sdl.Renderer, text string, x, y int, r, g, b float64) { // 0-1 rgb color
-	cursorX := x
-	cursorY := y
+func (font *Font) RenderString(text string, r, g, b float64) *sdl.Surface { // 0-1 rgb color
+	cursorX := 0
+	cursorY := 0
+
+	surface, err := sdl.CreateRGBSurface(
+		0,
+		int32(font.getStringLen(text)),
+		int32(font.CharSize[1]),
+		32,
+		0x00FF0000,
+		0x0000FF00,
+		0x000000FF,
+		0xFF000000,
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	// set modulation
+	font.Atlas.SetColorMod(uint8(r*255), uint8(g*255), uint8(b*255))
 
 	for _, char := range text {
 		if char == '\n' {
 			// Handle newlines
-			cursorX = x
+			cursorX = 0
 			cursorY += font.CharSize[1] + font.NewlinePad
 			continue
 		}
@@ -55,36 +72,39 @@ func (font *Font) renderString(renderer *sdl.Renderer, text string, x, y int, r,
 
 		dstRect := sdl.Rect{X: int32(cursorX), Y: int32(cursorY), W: srcRect.W, H: srcRect.H}
 
-		// set modulation
-		font.Atlas.SetColorMod(uint8(r*255), uint8(g*255), uint8(b*255))
-
-		err := renderer.Copy(font.Atlas, &srcRect, &dstRect)
-		if err != nil {
-			log.Printf("Failed to render character %q: %v", char, err)
-		}
+		// blit
+		font.Atlas.Blit(
+			&srcRect,
+			surface,
+			&dstRect,
+		)
 
 		// Advance cursor
 		charWidth := font.CharWidths[strings.IndexRune(font.CharSet, char)]
 		cursorX += charWidth + font.LetterPad
 	}
+	return surface
+}
+
+func (font Font) getStringLen(text string) (ln int) {
+	for i := range text {
+		// Advance cursor
+		charWidth := font.CharWidths[strings.IndexRune(font.CharSet, rune(text[i]))]
+		ln += charWidth + font.LetterPad
+	}
+	return
 }
 
 // newFont creates a new Font from an atlas image file
-func newFont(renderer sdl.Renderer, atlasPath string, gridWidth int, charSet string, charWidths []int) (font Font) {
+func NewFont(atlasPath string, gridWidth int, charSet string, charWidths []int) (font Font) {
 	// Load font atlas image
 	surface, err := img.Load(atlasPath)
 	if err != nil {
 		panic(err)
 	}
-	defer surface.Free() // buh bye
-
-	texture, err := renderer.CreateTextureFromSurface(surface)
-	if err != nil {
-		panic(err)
-	}
 
 	font = Font{
-		Atlas:      texture,
+		Atlas:      surface,
 		GridWidth:  gridWidth,
 		CharSize:   [2]int{5, 11}, // Most chars are 5x7, some extend below baseline to 11px
 		CharSet:    charSet,
@@ -97,10 +117,9 @@ func newFont(renderer sdl.Renderer, atlasPath string, gridWidth int, charSet str
 }
 
 // Default font using the Isometrica typeface
-func makeDefaultFont(renderer sdl.Renderer) Font {
-	return newFont(
-		renderer,
-		"assets/font_atlas.png",
+func MakeDefaultFont() Font {
+	return NewFont(
+		"font/assets/font_atlas.png",
 		10, // Characters per row in atlas
 		" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]\\^_`abcdefghijklmnopqrstuvwxyz{}|~", // add support for ⟨⟩⟪⟫☺
 		// Character widths (matching order of CharSet above):
@@ -136,7 +155,7 @@ func makeDefaultFont(renderer sdl.Renderer) Font {
 			3,                                                                            // ^
 			3,                                                                            // _
 			2,                                                                            // `
-			5, 5, 4, 5, 5, 5, 5, 5, 1, 4, 4, 3, 5, 4, 4, 5, 5, 4, 4, 4, 5, 3, 5, 3, 4, 4, // a-z
+			5, 5, 4, 5, 5, 4, 5, 5, 1, 4, 4, 3, 5, 4, 4, 5, 5, 4, 4, 4, 5, 3, 5, 3, 4, 4, // a-z
 			3, // {
 			3, // |
 			1, // }
